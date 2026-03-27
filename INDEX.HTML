@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Hand Tracking</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body {
+    margin: 0;
+    overflow: hidden;
+    background: black;
+}
+
+video, canvas {
+    position: absolute;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+}
+
+canvas {
+    pointer-events: none;
+}
+</style>
+</head>
+
+<body>
+
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
+
+<script type="module">
+import { Hands } from "https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js";
+import { Camera } from "https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js";
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// Инициализация MediaPipe
+const hands = new Hands({
+    locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
+
+hands.setOptions({
+    maxNumHands: 2,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence: 0.7
+});
+
+hands.onResults(results => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (results.multiHandLandmarks) {
+        for (const landmarks of results.multiHandLandmarks) {
+
+            // Рисуем точки
+            for (let point of landmarks) {
+                const x = point.x * canvas.width;
+                const y = point.y * canvas.height;
+
+                ctx.beginPath();
+                ctx.arc(x, y, 6, 0, 2 * Math.PI);
+                ctx.fillStyle = "#00ffcc";
+                ctx.fill();
+            }
+
+            // Рисуем линии (пальцы)
+            const connections = [
+                [0,1],[1,2],[2,3],[3,4],
+                [0,5],[5,6],[6,7],[7,8],
+                [5,9],[9,10],[10,11],[11,12],
+                [9,13],[13,14],[14,15],[15,16],
+                [13,17],[17,18],[18,19],[19,20],
+                [0,17]
+            ];
+
+            ctx.strokeStyle = "#00ffcc";
+            ctx.lineWidth = 2;
+
+            for (let [a, b] of connections) {
+                const x1 = landmarks[a].x * canvas.width;
+                const y1 = landmarks[a].y * canvas.height;
+                const x2 = landmarks[b].x * canvas.width;
+                const y2 = landmarks[b].y * canvas.height;
+
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+            }
+        }
+    }
+});
+
+// Камера
+const camera = new Camera(video, {
+    onFrame: async () => {
+        await hands.send({ image: video });
+    },
+    width: 1280,
+    height: 720
+});
+
+camera.start();
+</script>
+
+</body>
+</html>
