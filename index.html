@@ -2,11 +2,17 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Gesture Puzzle</title>
+<title>Finger GPT</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
-body { margin:0; overflow:hidden; background:#050507; }
+body {
+    margin:0;
+    overflow:hidden;
+    background:#050507;
+    font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+    color:white;
+}
 
 /* камера */
 video {
@@ -14,7 +20,7 @@ video {
     width:100vw;
     height:100vh;
     object-fit:cover;
-    opacity:0.1;
+    opacity:0.08;
 }
 
 /* UI */
@@ -22,51 +28,72 @@ video {
     position:absolute;
     inset:0;
     pointer-events:none;
-    font-family:-apple-system,BlinkMacSystemFont,sans-serif;
-    color:white;
 }
 
-#topBar {
-    position:absolute;
-    top:20px;
-    left:30px;
-    right:30px;
-    display:flex;
-    justify-content:space-between;
-}
-
-#logo { font-size:22px; font-weight:600; opacity:0.9; }
-#level { font-size:14px; opacity:0.6; }
-
-#centerHint {
+/* центр */
+#centerBox {
     position:absolute;
     top:50%;
     left:50%;
     transform:translate(-50%,-50%);
-    padding:14px 22px;
-    border-radius:16px;
-    background:rgba(255,255,255,0.06);
+    padding:20px 28px;
+    border-radius:20px;
+    background:rgba(255,255,255,0.05);
     backdrop-filter:blur(20px);
-    font-size:14px;
-    opacity:0;
-    transition:0.6s;
+    text-align:center;
 }
 
-#bottomPanel {
+#title {
+    font-size:26px;
+    font-weight:600;
+}
+
+#subtitle {
+    font-size:14px;
+    opacity:0.6;
+    margin-top:6px;
+}
+
+/* чат */
+#chat {
     position:absolute;
     bottom:30px;
     left:50%;
     transform:translateX(-50%);
-    display:flex;
-    gap:40px;
-    padding:14px 28px;
+    width:400px;
+    max-width:90vw;
+    padding:16px;
     border-radius:20px;
     background:rgba(255,255,255,0.05);
     backdrop-filter:blur(20px);
 }
 
-.stat { text-align:center; font-size:12px; opacity:0.7; }
-.stat b { display:block; font-size:18px; margin-top:4px; }
+.message {
+    margin-bottom:10px;
+    font-size:14px;
+    opacity:0.85;
+}
+
+/* статус */
+#status {
+    position:absolute;
+    top:20px;
+    right:30px;
+    font-size:12px;
+    opacity:0.6;
+}
+
+/* курсор */
+#cursor {
+    position:absolute;
+    width:20px;
+    height:20px;
+    border-radius:50%;
+    background:#00ffcc;
+    transform:translate(-50%,-50%);
+    pointer-events:none;
+    transition:0.1s;
+}
 </style>
 </head>
 
@@ -75,103 +102,41 @@ video {
 <video id="video" autoplay playsinline></video>
 
 <div id="ui">
-  <div id="topBar">
-    <div id="logo">Gesture</div>
-    <div id="level">Level 1</div>
-  </div>
+    <div id="status">Ready</div>
 
-  <div id="centerHint">Сожми пальцы, чтобы взять объект</div>
+    <div id="centerBox">
+        <div id="title">Finger GPT</div>
+        <div id="subtitle">Управляй AI руками</div>
+    </div>
 
-  <div id="bottomPanel">
-    <div class="stat">
-      <span>Time</span>
-      <b id="time">0.0s</b>
-    </div>
-    <div class="stat">
-      <span>Status</span>
-      <b id="status">Ready</b>
-    </div>
-  </div>
+    <div id="chat"></div>
+
+    <div id="cursor"></div>
 </div>
 
 <script type="module">
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.158/build/three.module.js";
 import { Hands } from "https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js";
 import { Camera } from "https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js";
 
-// ===== SCENE =====
-const scene = new THREE.Scene();
-const camera3D = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 100);
-camera3D.position.z = 6;
-
-const renderer = new THREE.WebGLRenderer({ antialias:true });
-renderer.setSize(innerWidth, innerHeight);
-document.body.appendChild(renderer.domElement);
-
-const light = new THREE.PointLight(0xffffff, 1.2);
-light.position.set(2,2,3);
-scene.add(light);
-
-// ===== UI =====
-const hint = document.getElementById("centerHint");
+// UI
 const status = document.getElementById("status");
-const levelText = document.getElementById("level");
+const cursorEl = document.getElementById("cursor");
+const chat = document.getElementById("chat");
 
-function showHint(text){
-    hint.innerText = text;
-    hint.style.opacity = 1;
-    setTimeout(()=> hint.style.opacity = 0, 2000);
-}
-
-// ===== TIMER =====
-let startTime = Date.now();
-setInterval(()=>{
-    const t = (Date.now() - startTime)/1000;
-    document.getElementById("time").innerText = t.toFixed(1)+"s";
-},100);
-
-// ===== PUZZLE =====
-const cubes = [];
-const targets = [];
-
-function createCube(x,y,color){
-    const geo = new THREE.BoxGeometry(1,1,1);
-    const mat = new THREE.MeshStandardMaterial({ color });
-    const cube = new THREE.Mesh(geo, mat);
-
-    cube.position.set(x + Math.random()*2-1, y + Math.random()*2-1, 0);
-    scene.add(cube);
-
-    cubes.push(cube);
-    targets.push(new THREE.Vector3(x,y,0));
-}
-
-function generateLevel(){
-    cubes.forEach(c => scene.remove(c));
-    cubes.length = 0;
-    targets.length = 0;
-
-    createCube(-1.5,1.5,0xff4d4d);
-    createCube(1.5,1.5,0x4dff88);
-    createCube(-1.5,-1.5,0x4da6ff);
-    createCube(1.5,-1.5,0xffd24d);
-}
-
-generateLevel();
-
-let level = 1;
-
-function nextLevel(){
-    level++;
-    levelText.innerText = "Level " + level;
-    generateLevel();
+// добавление сообщений
+function addMessage(text){
+    const div = document.createElement("div");
+    div.className = "message";
+    div.innerText = text;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
 }
 
 // ===== HAND =====
 const video = document.getElementById("video");
 
 let cursor = {x:0,y:0};
-let grabbedCube = null;
+let lastPinch = false;
 
 function dist(a,b){
     return Math.hypot(a.x-b.x, a.y-b.y);
@@ -179,10 +144,6 @@ function dist(a,b){
 
 function isPinch(lm){
     return dist(lm[4], lm[8]) < 0.05;
-}
-
-function pinchStrength(lm){
-    return dist(lm[4], lm[8]);
 }
 
 // ===== TRACKING =====
@@ -201,38 +162,63 @@ hands.onResults(res=>{
 
     const lm = res.multiHandLandmarks[0];
 
-    cursor.x = (lm[8].x - 0.5) * 8;
-    cursor.y = -(lm[8].y - 0.5) * 5;
+    cursor.x = lm[8].x * window.innerWidth;
+    cursor.y = lm[8].y * window.innerHeight;
+
+    cursorEl.style.left = cursor.x + "px";
+    cursorEl.style.top = cursor.y + "px";
 
     const pinch = isPinch(lm);
-    const strength = pinchStrength(lm);
 
-    if(pinch && !grabbedCube){
-        let closest=null, min=999;
-        cubes.forEach(c=>{
-            const d = Math.hypot(c.position.x-cursor.x, c.position.y-cursor.y);
-            if(d<min && d<1.2){ min=d; closest=c; }
-        });
-        grabbedCube = closest;
-    }
+    // визуал курсора
+    cursorEl.style.background = pinch ? "#ff4d4d" : "#00ffcc";
 
-    if(!pinch) grabbedCube = null;
+    // действие
+    if(pinch && !lastPinch){
+        status.innerText = "Click";
 
-    if(grabbedCube){
-        status.innerText = "Holding";
-
-        grabbedCube.position.x = cursor.x;
-        grabbedCube.position.y = cursor.y;
-        grabbedCube.position.z = (0.1 - strength)*10;
-
-        grabbedCube.rotation.y += (lm[8].x - lm[5].x)*0.3;
-        grabbedCube.rotation.x += (lm[8].y - lm[5].y)*0.3;
-
-        grabbedCube.material.emissive = new THREE.Color(0x222222);
+        handleClick(cursor.x, cursor.y);
     } else {
-        status.innerText = "Searching";
+        status.innerText = "Tracking";
     }
+
+    lastPinch = pinch;
 });
+
+// ===== ЛОГИКА UI =====
+function handleClick(x,y){
+
+    // если клик по центру → отправка команды
+    const center = document.getElementById("centerBox").getBoundingClientRect();
+
+    if(
+        x > center.left &&
+        x < center.right &&
+        y > center.top &&
+        y < center.bottom
+    ){
+        addMessage("Ты: Запусти систему");
+
+        setTimeout(()=>{
+            addMessage("GPT: Система активирована");
+        },600);
+    }
+
+    // если клик внизу → новый запрос
+    const chatBox = document.getElementById("chat").getBoundingClientRect();
+
+    if(
+        x > chatBox.left &&
+        x < chatBox.right &&
+        y > chatBox.top &&
+        y < chatBox.bottom
+    ){
+        addMessage("Ты: Привет");
+        setTimeout(()=>{
+            addMessage("GPT: Привет 👋");
+        },500);
+    }
+}
 
 // камера
 const cam = new Camera(video,{
@@ -242,73 +228,6 @@ const cam = new Camera(video,{
 });
 cam.start();
 
-// ===== FX =====
-const particles = [];
-
-function spawnParticles(pos){
-    for(let i=0;i<10;i++){
-        const p = new THREE.Mesh(
-            new THREE.SphereGeometry(0.05),
-            new THREE.MeshBasicMaterial({color:0xffffff})
-        );
-        p.position.copy(pos);
-        p.vel = new THREE.Vector3(
-            (Math.random()-0.5)*0.2,
-            (Math.random()-0.5)*0.2,
-            (Math.random()-0.5)*0.2
-        );
-        scene.add(p);
-        particles.push(p);
-    }
-}
-
-// ===== LOOP =====
-function animate(){
-    requestAnimationFrame(animate);
-
-    let completed = true;
-
-    cubes.forEach((c,i)=>{
-        const target = targets[i];
-        const d = c.position.distanceTo(target);
-
-        if(d < 0.5){
-            c.position.lerp(target,0.2);
-            c.material.emissive = new THREE.Color(0x00ffcc);
-
-            if(d < 0.1) spawnParticles(c.position);
-        } else {
-            completed = false;
-            if(c !== grabbedCube)
-                c.material.emissive = new THREE.Color(0x000000);
-        }
-    });
-
-    if(completed){
-        showHint("Готово ✨");
-        setTimeout(nextLevel,1200);
-    }
-
-    particles.forEach((p,i)=>{
-        p.position.add(p.vel);
-        p.scale.multiplyScalar(0.96);
-
-        if(p.scale.x < 0.01){
-            scene.remove(p);
-            particles.splice(i,1);
-        }
-    });
-
-    renderer.render(scene,camera3D);
-}
-animate();
-
-// resize
-addEventListener("resize",()=>{
-    renderer.setSize(innerWidth, innerHeight);
-    camera3D.aspect = innerWidth/innerHeight;
-    camera3D.updateProjectionMatrix();
-});
 </script>
 
 </body>
