@@ -2,112 +2,313 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Hand Tracking</title>
+<title>Gesture Puzzle</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
-body {
-    margin: 0;
-    overflow: hidden;
-    background: black;
+body { margin:0; overflow:hidden; background:#050507; }
+
+/* камера */
+video {
+    position:absolute;
+    width:100vw;
+    height:100vh;
+    object-fit:cover;
+    opacity:0.1;
 }
 
-video, canvas {
-    position: absolute;
-    width: 100vw;
-    height: 100vh;
-    object-fit: cover;
+/* UI */
+#ui {
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+    color:white;
 }
 
-canvas {
-    pointer-events: none;
+#topBar {
+    position:absolute;
+    top:20px;
+    left:30px;
+    right:30px;
+    display:flex;
+    justify-content:space-between;
 }
+
+#logo { font-size:22px; font-weight:600; opacity:0.9; }
+#level { font-size:14px; opacity:0.6; }
+
+#centerHint {
+    position:absolute;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    padding:14px 22px;
+    border-radius:16px;
+    background:rgba(255,255,255,0.06);
+    backdrop-filter:blur(20px);
+    font-size:14px;
+    opacity:0;
+    transition:0.6s;
+}
+
+#bottomPanel {
+    position:absolute;
+    bottom:30px;
+    left:50%;
+    transform:translateX(-50%);
+    display:flex;
+    gap:40px;
+    padding:14px 28px;
+    border-radius:20px;
+    background:rgba(255,255,255,0.05);
+    backdrop-filter:blur(20px);
+}
+
+.stat { text-align:center; font-size:12px; opacity:0.7; }
+.stat b { display:block; font-size:18px; margin-top:4px; }
 </style>
 </head>
 
 <body>
 
 <video id="video" autoplay playsinline></video>
-<canvas id="canvas"></canvas>
+
+<div id="ui">
+  <div id="topBar">
+    <div id="logo">Gesture</div>
+    <div id="level">Level 1</div>
+  </div>
+
+  <div id="centerHint">Сожми пальцы, чтобы взять объект</div>
+
+  <div id="bottomPanel">
+    <div class="stat">
+      <span>Time</span>
+      <b id="time">0.0s</b>
+    </div>
+    <div class="stat">
+      <span>Status</span>
+      <b id="status">Ready</b>
+    </div>
+  </div>
+</div>
 
 <script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.158/build/three.module.js";
 import { Hands } from "https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js";
 import { Camera } from "https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js";
 
+// ===== SCENE =====
+const scene = new THREE.Scene();
+const camera3D = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 100);
+camera3D.position.z = 6;
+
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const light = new THREE.PointLight(0xffffff, 1.2);
+light.position.set(2,2,3);
+scene.add(light);
+
+// ===== UI =====
+const hint = document.getElementById("centerHint");
+const status = document.getElementById("status");
+const levelText = document.getElementById("level");
+
+function showHint(text){
+    hint.innerText = text;
+    hint.style.opacity = 1;
+    setTimeout(()=> hint.style.opacity = 0, 2000);
+}
+
+// ===== TIMER =====
+let startTime = Date.now();
+setInterval(()=>{
+    const t = (Date.now() - startTime)/1000;
+    document.getElementById("time").innerText = t.toFixed(1)+"s";
+},100);
+
+// ===== PUZZLE =====
+const cubes = [];
+const targets = [];
+
+function createCube(x,y,color){
+    const geo = new THREE.BoxGeometry(1,1,1);
+    const mat = new THREE.MeshStandardMaterial({ color });
+    const cube = new THREE.Mesh(geo, mat);
+
+    cube.position.set(x + Math.random()*2-1, y + Math.random()*2-1, 0);
+    scene.add(cube);
+
+    cubes.push(cube);
+    targets.push(new THREE.Vector3(x,y,0));
+}
+
+function generateLevel(){
+    cubes.forEach(c => scene.remove(c));
+    cubes.length = 0;
+    targets.length = 0;
+
+    createCube(-1.5,1.5,0xff4d4d);
+    createCube(1.5,1.5,0x4dff88);
+    createCube(-1.5,-1.5,0x4da6ff);
+    createCube(1.5,-1.5,0xffd24d);
+}
+
+generateLevel();
+
+let level = 1;
+
+function nextLevel(){
+    level++;
+    levelText.innerText = "Level " + level;
+    generateLevel();
+}
+
+// ===== HAND =====
 const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
 
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+let cursor = {x:0,y:0};
+let grabbedCube = null;
 
-// Инициализация MediaPipe
+function dist(a,b){
+    return Math.hypot(a.x-b.x, a.y-b.y);
+}
+
+function isPinch(lm){
+    return dist(lm[4], lm[8]) < 0.05;
+}
+
+function pinchStrength(lm){
+    return dist(lm[4], lm[8]);
+}
+
+// ===== TRACKING =====
 const hands = new Hands({
     locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
 });
 
 hands.setOptions({
-    maxNumHands: 2,
-    modelComplexity: 1,
-    minDetectionConfidence: 0.7,
-    minTrackingConfidence: 0.7
+    maxNumHands:1,
+    minDetectionConfidence:0.7,
+    minTrackingConfidence:0.7
 });
 
-hands.onResults(results => {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+hands.onResults(res=>{
+    if(!res.multiHandLandmarks) return;
 
-    if (results.multiHandLandmarks) {
-        for (const landmarks of results.multiHandLandmarks) {
+    const lm = res.multiHandLandmarks[0];
 
-            // Рисуем точки
-            for (let point of landmarks) {
-                const x = point.x * canvas.width;
-                const y = point.y * canvas.height;
+    cursor.x = (lm[8].x - 0.5) * 8;
+    cursor.y = -(lm[8].y - 0.5) * 5;
 
-                ctx.beginPath();
-                ctx.arc(x, y, 6, 0, 2 * Math.PI);
-                ctx.fillStyle = "#00ffcc";
-                ctx.fill();
-            }
+    const pinch = isPinch(lm);
+    const strength = pinchStrength(lm);
 
-            // Рисуем линии (пальцы)
-            const connections = [
-                [0,1],[1,2],[2,3],[3,4],
-                [0,5],[5,6],[6,7],[7,8],
-                [5,9],[9,10],[10,11],[11,12],
-                [9,13],[13,14],[14,15],[15,16],
-                [13,17],[17,18],[18,19],[19,20],
-                [0,17]
-            ];
+    if(pinch && !grabbedCube){
+        let closest=null, min=999;
+        cubes.forEach(c=>{
+            const d = Math.hypot(c.position.x-cursor.x, c.position.y-cursor.y);
+            if(d<min && d<1.2){ min=d; closest=c; }
+        });
+        grabbedCube = closest;
+    }
 
-            ctx.strokeStyle = "#00ffcc";
-            ctx.lineWidth = 2;
+    if(!pinch) grabbedCube = null;
 
-            for (let [a, b] of connections) {
-                const x1 = landmarks[a].x * canvas.width;
-                const y1 = landmarks[a].y * canvas.height;
-                const x2 = landmarks[b].x * canvas.width;
-                const y2 = landmarks[b].y * canvas.height;
+    if(grabbedCube){
+        status.innerText = "Holding";
 
-                ctx.beginPath();
-                ctx.moveTo(x1, y1);
-                ctx.lineTo(x2, y2);
-                ctx.stroke();
-            }
-        }
+        grabbedCube.position.x = cursor.x;
+        grabbedCube.position.y = cursor.y;
+        grabbedCube.position.z = (0.1 - strength)*10;
+
+        grabbedCube.rotation.y += (lm[8].x - lm[5].x)*0.3;
+        grabbedCube.rotation.x += (lm[8].y - lm[5].y)*0.3;
+
+        grabbedCube.material.emissive = new THREE.Color(0x222222);
+    } else {
+        status.innerText = "Searching";
     }
 });
 
-// Камера
-const camera = new Camera(video, {
-    onFrame: async () => {
-        await hands.send({ image: video });
-    },
-    width: 1280,
-    height: 720
+// камера
+const cam = new Camera(video,{
+    onFrame: async ()=> await hands.send({image:video}),
+    width:1280,
+    height:720
 });
+cam.start();
 
-camera.start();
+// ===== FX =====
+const particles = [];
+
+function spawnParticles(pos){
+    for(let i=0;i<10;i++){
+        const p = new THREE.Mesh(
+            new THREE.SphereGeometry(0.05),
+            new THREE.MeshBasicMaterial({color:0xffffff})
+        );
+        p.position.copy(pos);
+        p.vel = new THREE.Vector3(
+            (Math.random()-0.5)*0.2,
+            (Math.random()-0.5)*0.2,
+            (Math.random()-0.5)*0.2
+        );
+        scene.add(p);
+        particles.push(p);
+    }
+}
+
+// ===== LOOP =====
+function animate(){
+    requestAnimationFrame(animate);
+
+    let completed = true;
+
+    cubes.forEach((c,i)=>{
+        const target = targets[i];
+        const d = c.position.distanceTo(target);
+
+        if(d < 0.5){
+            c.position.lerp(target,0.2);
+            c.material.emissive = new THREE.Color(0x00ffcc);
+
+            if(d < 0.1) spawnParticles(c.position);
+        } else {
+            completed = false;
+            if(c !== grabbedCube)
+                c.material.emissive = new THREE.Color(0x000000);
+        }
+    });
+
+    if(completed){
+        showHint("Готово ✨");
+        setTimeout(nextLevel,1200);
+    }
+
+    particles.forEach((p,i)=>{
+        p.position.add(p.vel);
+        p.scale.multiplyScalar(0.96);
+
+        if(p.scale.x < 0.01){
+            scene.remove(p);
+            particles.splice(i,1);
+        }
+    });
+
+    renderer.render(scene,camera3D);
+}
+animate();
+
+// resize
+addEventListener("resize",()=>{
+    renderer.setSize(innerWidth, innerHeight);
+    camera3D.aspect = innerWidth/innerHeight;
+    camera3D.updateProjectionMatrix();
+});
 </script>
 
 </body>
