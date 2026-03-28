@@ -1,151 +1,167 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Magic Finger GPT - Final Edition</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #050507; font-family: -apple-system, sans-serif; }
+        video {
+            position: absolute; width: 100vw; height: 100vh;
+            object-fit: cover; transform: scaleX(-1); opacity: 0.3;
+            filter: brightness(1.1);
+        }
+        canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 10; }
+        #ui {
+            position: absolute; top: 25px; left: 25px; z-index: 20;
+            padding: 15px 25px; background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(10px); border-radius: 15px;
+            color: #00ffcc; font-family: monospace; border: 1px solid rgba(0,255,204,0.2);
+        }
+        #btn {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            z-index: 100; padding: 20px 50px; background: #00ffcc; border: none;
+            border-radius: 40px; font-weight: bold; cursor: pointer; font-size: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<video id="video" autoplay playsinline></video>
+<canvas id="output_canvas"></canvas>
+<div id="ui">INITIALIZING...</div>
+<button id="btn">START MAGIC</button>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
 <script>
 const video = document.getElementById('video');
 const canvasElement = document.getElementById('output_canvas');
 const canvasCtx = canvasElement.getContext('2d');
 const ui = document.getElementById('ui');
 
-function resizeCanvas() {
-    canvasElement.width = video.clientWidth;
-    canvasElement.height = video.clientHeight;
+// ===== AUDIO SYSTEM (Синтезатор клика) =====
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playClickSound() {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.1);
 }
-window.addEventListener("resize", resizeCanvas);
 
-// ===== UTILS =====
-function dist(a, b) {
-    return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-// ===== PARTICLES =====
+// ===== PARTICLES ENGINE =====
 const particles = [];
-
 function spawnParticles(x, y) {
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 15; i++) {
         particles.push({
             x, y,
-            vx: (Math.random() - 0.5) * 4,
-            vy: (Math.random() - 0.5) * 4,
-            life: 1
+            vx: (Math.random() - 0.5) * 10,
+            vy: (Math.random() - 0.5) * 10,
+            life: 1.0
         });
     }
 }
 
-function drawParticles() {
-    particles.forEach((p, i) => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life *= 0.95;
-
-        canvasCtx.fillStyle = `rgba(0,255,204,${p.life})`;
-        canvasCtx.beginPath();
-        canvasCtx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-        canvasCtx.fill();
-
-        if (p.life < 0.05) particles.splice(i, 1);
-    });
-}
-
-// ===== STATE =====
-let lastTrigger = 0;
-
-// ===== MAIN =====
-function onResults(results) {
-    resizeCanvas();
-
-    canvasCtx.save();
+// Постоянный цикл анимации (для плавности частиц)
+function animate() {
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    
+    // Рисуем частицы (с конца массива)
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx; p.y += p.vy;
+        p.life *= 0.92;
+        canvasCtx.fillStyle = `rgba(0, 255, 204, ${p.life})`;
+        canvasCtx.beginPath();
+        canvasCtx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+        canvasCtx.fill();
+        if (p.life < 0.01) particles.splice(i, 1);
+    }
+    
+    // Если есть данные от MediaPipe, они отрисуются поверх в onResults
+    requestAnimationFrame(animate);
+}
+animate();
 
-    let handsCount = 0;
+// ===== HAND TRACKING =====
+let lastTrigger = 0;
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+function onResults(results) {
+    // Синхронизируем размер холста
+    canvasElement.width = video.clientWidth;
+    canvasElement.height = video.clientHeight;
 
     if (results.multiHandLandmarks) {
-        handsCount = results.multiHandLandmarks.length;
-
+        ui.innerText = `SYSTEM ACTIVE | HANDS: ${results.multiHandLandmarks.length}`;
+        
         for (const landmarks of results.multiHandLandmarks) {
+            // Зеркалим координаты
+            const m = landmarks.map(p => ({ x: 1 - p.x, y: p.y }));
 
-            const m = landmarks.map(p => ({
-                x: 1 - p.x,
-                y: p.y,
-                z: p.z
-            }));
-
-            // skeleton
-            drawConnectors(canvasCtx, m, HAND_CONNECTIONS, {
-                color: '#00ffcc',
-                lineWidth: 4
-            });
-
-            drawLandmarks(canvasCtx, m, {
-                color: '#ffffff',
-                radius: 2
-            });
+            // Скелет (полупрозрачный)
+            drawConnectors(canvasCtx, m, HAND_CONNECTIONS, {color: 'rgba(0, 255, 204, 0.3)', lineWidth: 3});
+            drawLandmarks(canvasCtx, m, {color: '#fff', radius: 1});
 
             const x = m[8].x * canvasElement.width;
             const y = m[8].y * canvasElement.height;
-
             const d = dist(m[4], m[8]);
 
-            // 👆 hover эффект
-            if (d < 0.09 && d > 0.05) {
-                canvasCtx.beginPath();
-                canvasCtx.arc(x, y, 15, 0, Math.PI * 2);
-                canvasCtx.strokeStyle = "rgba(0,255,204,0.5)";
+            // Hover эффект (указательный палец)
+            if (d < 0.1 && d > 0.05) {
+                canvasCtx.strokeStyle = "#00ffcc";
                 canvasCtx.lineWidth = 2;
+                canvasCtx.beginPath();
+                canvasCtx.arc(x, y, 20, 0, Math.PI * 2);
                 canvasCtx.stroke();
             }
 
-            // 🔥 pinch
+            // Pinch (Щипок)
             if (d < 0.05) {
-
-                // glow
+                // Визуальный отклик
                 canvasCtx.shadowBlur = 30;
                 canvasCtx.shadowColor = "#ff4d4d";
-
-                canvasCtx.beginPath();
-                canvasCtx.arc(x, y, 18, 0, Math.PI * 2);
                 canvasCtx.fillStyle = "#ff4d4d";
+                canvasCtx.beginPath();
+                canvasCtx.arc(x, y, 15, 0, Math.PI * 2);
                 canvasCtx.fill();
+                canvasCtx.shadowBlur = 0;
 
-                // анти-спам
-                if (Date.now() - lastTrigger > 200) {
+                // Звук и частицы (с защитой от спама)
+                if (Date.now() - lastTrigger > 250) {
+                    playClickSound();
                     spawnParticles(x, y);
                     lastTrigger = Date.now();
                 }
             }
         }
+    } else {
+        ui.innerText = "WAITING FOR HANDS...";
     }
-
-    drawParticles();
-
-    // UI
-    ui.innerText = `SYSTEM ACTIVE | HANDS: ${handsCount}`;
-
-    canvasCtx.restore();
 }
 
-// ===== INIT =====
-const hands = new Hands({
-    locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
-});
-
-hands.setOptions({
-    maxNumHands: 2,
-    modelComplexity: 1,
-    minDetectionConfidence: 0.6,
-    minTrackingConfidence: 0.6
-});
-
+const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+hands.setOptions({maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6});
 hands.onResults(onResults);
 
 const camera = new Camera(video, {
-    onFrame: async () => {
-        await hands.send({ image: video });
-    },
-    width: 1280,
-    height: 720
+    onFrame: async () => { await hands.send({ image: video }); },
+    width: 1280, height: 720
 });
 
-// START
 document.getElementById('btn').onclick = (e) => {
+    audioCtx.resume(); // Активируем аудио-контекст после клика
     e.target.remove();
     camera.start();
 };
 </script>
+</body>
+</html>
