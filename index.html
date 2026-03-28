@@ -2,195 +2,76 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Magic Hands GPT — Final</title>
+    <title>Finger GPT Fixed</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #050507; font-family: -apple-system, sans-serif; }
-        
-        /* Видео: светлое и отзеркаленное по горизонтали */
+        body { margin: 0; overflow: hidden; background: #000; }
         video {
-            position: absolute;
-            width: 100vw; height: 100vh;
-            object-fit: cover;
-            transform: scaleX(-1);
-            opacity: 0.35;
-            filter: brightness(1.2) contrast(1.1);
+            position: absolute; width: 100vw; height: 100vh;
+            object-fit: cover; transform: scaleX(-1); opacity: 0.4;
         }
-
-        /* Холст для рисования скелета и магии */
         canvas {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100vw; height: 100vh;
-            z-index: 5;
-            pointer-events: none;
+            position: absolute; top: 0; left: 0;
+            width: 100vw; height: 100vh; z-index: 10;
         }
-
-        #ui {
-            position: absolute;
-            inset: 0;
-            z-index: 10;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            padding: 30px;
-            pointer-events: none;
-        }
-
-        .glass {
-            background: rgba(255, 255, 255, 0.08);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 24px;
-            padding: 20px;
-            color: white;
-            pointer-events: auto;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-        }
-
-        #startScreen {
-            position: fixed; inset: 0;
-            background: radial-gradient(circle, #1a1a2e 0%, #050507 100%);
-            display: flex; flex-direction: column;
-            justify-content: center; align-items: center;
-            z-index: 100; color: white; text-align: center;
-        }
-
-        button {
-            padding: 16px 45px; border-radius: 30px; border: none;
-            background: #00ffcc; color: #050507; font-size: 18px;
-            font-weight: bold; cursor: pointer; transition: 0.3s;
-        }
-        button:hover { transform: scale(1.05); box-shadow: 0 0 20px rgba(0,255,204,0.4); }
-
-        .status-tag { color: #00ffcc; font-family: monospace; font-weight: bold; margin-bottom: 5px; }
-        #messages { font-size: 14px; opacity: 0.9; line-height: 1.4; }
+        #ui { position: absolute; top: 20px; left: 20px; z-index: 20; color: #00ffcc; font-family: monospace; }
+        #btn { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 30; padding: 20px; cursor: pointer; }
     </style>
 </head>
 <body>
+    <video id="video" autoplay playsinline></video>
+    <canvas id="output_canvas"></canvas>
+    <div id="ui">SYSTEM READY</div>
+    <button id="btn">START MAGIC</button>
 
-<video id="video" autoplay playsinline></video>
-<canvas id="output_canvas"></canvas>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
-<div id="startScreen">
-    <h1 style="font-size: 42px; margin-bottom: 10px;">Magic Hands AI</h1>
-    <p style="opacity: 0.7; margin-bottom: 30px;">Управляй интерфейсом обеими руками в реальном времени</p>
-    <button id="startBtn">ЗАПУСТИТЬ СИСТЕМУ</button>
-</div>
+    <script>
+        const video = document.getElementById('video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
 
-<div id="ui">
-    <div style="display: flex; justify-content: space-between;">
-        <div class="glass">
-            <div class="status-tag">● SYSTEM ACTIVE</div>
-            <div id="handCount">Hands detected: 0</div>
-        </div>
-    </div>
-    
-    <div id="chat" class="glass" style="width: 320px;">
-        <div id="messages">Соедини указательный и большой пальцы для активации магии...</div>
-    </div>
-</div>
+        function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+        function onResults(results) {
+            canvasElement.width = video.clientWidth;
+            canvasElement.height = video.clientHeight;
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-<script>
-const video = document.getElementById('video');
-const canvasElement = document.getElementById('output_canvas');
-const canvasCtx = canvasElement.getContext('2d');
-const msgBox = document.getElementById('messages');
-const handCountLabel = document.getElementById('handCount');
-
-// Функция расчета расстояния между точками
-function dist(a, b) {
-    return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function onResults(results) {
-    // Адаптация размера холста под окно
-    canvasElement.width = window.innerWidth;
-    canvasElement.height = window.innerHeight;
-
-    canvasCtx.save();
-    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
-    const handsFound = results.multiHandLandmarks ? results.multiHandLandmarks.length : 0;
-    handCountLabel.innerText = `Hands detected: ${handsFound}`;
-
-    if (results.multiHandLandmarks) {
-        for (let i = 0; i < results.multiHandLandmarks.length; i++) {
-            const landmarks = results.multiHandLandmarks[i];
-            
-            // ВАЖНО: Зеркалим координаты X, чтобы скелет совпал с отзеркаленным видео
-            const mirroredLandmarks = landmarks.map(point => ({
-                x: 1 - point.x, 
-                y: point.y,
-                z: point.z
-            }));
-
-            // Отрисовка скелета
-            drawConnectors(canvasCtx, mirroredLandmarks, HAND_CONNECTIONS, {color: '#00ffcc', lineWidth: 3});
-            drawLandmarks(canvasCtx, mirroredLandmarks, {color: '#ffffff', lineWidth: 1, radius: 3});
-
-            // Логика жеста (Pinch)
-            const thumb = mirroredLandmarks[4];
-            const index = mirroredLandmarks[8];
-            const pinchDist = dist(thumb, index);
-
-            if (pinchDist < 0.045) {
-                // Визуальный эффект магии в точке касания
-                drawMagicCircle(index.x * canvasElement.width, index.y * canvasElement.height);
-                msgBox.innerHTML = "<span style='color:#00ffcc'>[EVENT]:</span> Магия активирована в реальном времени!";
+            if (results.multiHandLandmarks) {
+                for (const landmarks of results.multiHandLandmarks) {
+                    const mirrored = landmarks.map(p => ({x: 1-p.x, y: p.y, z: p.z}));
+                    drawConnectors(canvasCtx, mirrored, HAND_CONNECTIONS, {color: '#00ffcc', lineWidth: 5});
+                    drawLandmarks(canvasCtx, mirrored, {color: '#fff', radius: 3});
+                    
+                    if (dist(mirrored[4], mirrored[8]) < 0.05) {
+                        canvasCtx.fillStyle = '#ff4d4d';
+                        canvasCtx.shadowBlur = 20;
+                        canvasCtx.shadowColor = '#ff4d4d';
+                        canvasCtx.beginPath();
+                        canvasCtx.arc(mirrored[8].x * canvasElement.width, mirrored[8].y * canvasElement.height, 20, 0, 2*Math.PI);
+                        canvasCtx.fill();
+                    }
+                }
             }
+            canvasCtx.restore();
         }
-    }
-    canvasCtx.restore();
-}
 
-function drawMagicCircle(x, y) {
-    canvasCtx.shadowBlur = 25;
-    canvasCtx.shadowColor = "#00ffcc";
-    canvasCtx.beginPath();
-    canvasCtx.arc(x, y, 20, 0, Math.PI * 2);
-    canvasCtx.fillStyle = "rgba(0, 255, 204, 0.6)";
-    canvasCtx.fill();
-    
-    // Дополнительный импульс
-    canvasCtx.beginPath();
-    canvasCtx.arc(x, y, 35, 0, Math.PI * 2);
-    canvasCtx.strokeStyle = "rgba(0, 255, 204, 0.3)";
-    canvasCtx.lineWidth = 2;
-    canvasCtx.stroke();
-}
+        const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+        hands.setOptions({maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5});
+        hands.onResults(onResults);
 
-const hands = new Hands({
-    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-});
+        const camera = new Camera(video, {
+            onFrame: async () => { await hands.send({image: video}); },
+            width: 1280, height: 720
+        });
 
-hands.setOptions({
-    maxNumHands: 2, // Теперь видит две руки
-    modelComplexity: 1,
-    minDetectionConfidence: 0.6,
-    minTrackingConfidence: 0.6
-});
-
-hands.onResults(onResults);
-
-const camera = new Camera(video, {
-    onFrame: async () => {
-        await hands.send({image: video});
-    },
-    width: 1280,
-    height: 720
-});
-
-document.getElementById('startBtn').onclick = () => {
-    document.getElementById('startScreen').style.opacity = '0';
-    setTimeout(() => {
-        document.getElementById('startScreen').style.display = 'none';
-        camera.start();
-    }, 400);
-};
-</script>
+        document.getElementById('btn').onclick = (e) => {
+            e.target.remove();
+            camera.start();
+        };
+    </script>
 </body>
 </html>
