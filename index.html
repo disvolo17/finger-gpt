@@ -1,97 +1,120 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<title>Finger GPT</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <title>Finger GPT - Контроллер</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #050507;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            color: white;
+        }
 
-<style>
-body {
-    margin:0;
-    overflow:hidden;
-    background:#050507;
-    font-family:-apple-system,BlinkMacSystemFont,sans-serif;
-    color:white;
-}
+        /* Видео зеркально отражено для удобства управления */
+        video {
+            position: absolute;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            opacity: 0.15;
+            transform: scaleX(-1);
+        }
 
-video {
-    position:absolute;
-    width:100vw;
-    height:100vh;
-    object-fit:cover;
-    opacity:0.08;
-}
+        #startScreen {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: radial-gradient(circle, #1a1a2e 0%, #050507 100%);
+            z-index: 10;
+            text-align: center;
+        }
 
-#startScreen {
-    position:absolute;
-    inset:0;
-    display:flex;
-    flex-direction:column;
-    justify-content:center;
-    align-items:center;
-    background:#050507;
-    z-index:10;
-}
+        #startBtn {
+            padding: 15px 40px;
+            border-radius: 30px;
+            border: none;
+            background: #00ffcc;
+            color: #050507;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
 
-#startBtn {
-    padding:12px 28px;
-    border-radius:20px;
-    border:none;
-    background:white;
-    color:black;
-    font-size:16px;
-    cursor:pointer;
-}
+        #startBtn:hover { transform: scale(1.05); }
 
-#status {
-    position:absolute;
-    top:20px;
-    right:30px;
-    font-size:12px;
-    opacity:0.6;
-}
+        #status {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            font-size: 14px;
+            letter-spacing: 1px;
+            color: #00ffcc;
+            text-transform: uppercase;
+        }
 
-#chat {
-    position:absolute;
-    bottom:30px;
-    left:50%;
-    transform:translateX(-50%);
-    width:420px;
-    max-width:90vw;
-    padding:16px;
-    border-radius:20px;
-    background:rgba(255,255,255,0.05);
-    backdrop-filter:blur(20px);
-}
+        #chat {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 400px;
+            max-width: 85vw;
+            height: 150px;
+            padding: 20px;
+            border-radius: 24px;
+            background: rgba(255, 255, 255, 0.07);
+            backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column-reverse;
+        }
 
-.message {
-    margin-bottom:10px;
-    font-size:14px;
-}
+        .message {
+            margin-top: 8px;
+            padding: 8px 12px;
+            border-radius: 12px;
+            font-size: 14px;
+            animation: fadeIn 0.3s ease;
+        }
 
-#cursor {
-    position:absolute;
-    width:18px;
-    height:18px;
-    border-radius:50%;
-    background:#00ffcc;
-    transform:translate(-50%,-50%);
-    pointer-events:none;
-}
-</style>
+        .user-msg { background: rgba(0, 255, 204, 0.1); color: #00ffcc; align-self: flex-end; }
+        .ai-msg { background: rgba(255, 255, 255, 0.1); color: #fff; align-self: flex-start; }
+
+        #cursor {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #00ffcc;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            box-shadow: 0 0 20px #00ffcc;
+            transition: background 0.2s, transform 0.1s;
+            z-index: 100;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
 </head>
-
 <body>
 
 <video id="video" autoplay playsinline></video>
 
 <div id="startScreen">
-  <h1>Finger GPT</h1>
-  <p>Управляй AI руками</p>
-  <button id="startBtn">Start</button>
+    <h1>Finger GPT</h1>
+    <p>Соедини большой и указательный пальцы на 1 сек</p>
+    <button id="startBtn">Запустить AI</button>
 </div>
 
-<div id="status">Ready</div>
+<div id="status">Ожидание...</div>
 <div id="chat"></div>
 <div id="cursor"></div>
 
@@ -106,73 +129,81 @@ const status = document.getElementById("status");
 const startScreen = document.getElementById("startScreen");
 const startBtn = document.getElementById("startBtn");
 
-// сообщения
-function addMessage(text){
-    const div = document.createElement("div");
-    div.className = "message";
-    div.innerText = text;
-    chat.appendChild(div);
-}
-
-// расстояние
-function dist(a,b){
-    return Math.hypot(a.x-b.x, a.y-b.y);
-}
-
-// pinch
-function isPinch(lm){
-    return dist(lm[4], lm[8]) < 0.05;
-}
-
 let holdStart = null;
+let lastX = 0, lastY = 0; // Для сглаживания
 
-// MediaPipe
+function addMessage(text, type) {
+    const div = document.createElement("div");
+    div.className = `message ${type}`;
+    div.innerText = text;
+    chat.prepend(div);
+}
+
+// Расстояние между точками
+function dist(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
 const hands = new Hands({
-    locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
 });
 
 hands.setOptions({
-    maxNumHands:1,
-    minDetectionConfidence:0.7,
-    minTrackingConfidence:0.7
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6
 });
 
-hands.onResults(res => {
-    if(!res.multiHandLandmarks) return;
+hands.onResults(results => {
+    if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+        status.innerText = "Рука не видна";
+        return;
+    }
+    status.innerText = "Система активна";
 
-    const lm = res.multiHandLandmarks[0];
+    const lm = results.multiHandLandmarks[0];
+    
+    // Координаты кончика указательного пальца (8 точка)
+    // Инвертируем X (1 - lm[8].x) для зеркального эффекта
+    const targetX = (1 - lm[8].x) * window.innerWidth;
+    const targetY = lm[8].y * window.innerHeight;
 
-    const x = lm[8].x * window.innerWidth;
-    const y = lm[8].y * window.innerHeight;
+    // Сглаживание движения (линейная интерполяция)
+    lastX += (targetX - lastX) * 0.3;
+    lastY += (targetY - lastY) * 0.3;
 
-    cursor.style.left = x + "px";
-    cursor.style.top = y + "px";
+    cursor.style.left = `${lastX}px`;
+    cursor.style.top = `${lastY}px`;
 
-    const pinch = isPinch(lm);
-    cursor.style.background = pinch ? "#ff4d4d" : "#00ffcc";
+    // Расстояние щипка (между 4 и 8 точками)
+    const pinchDist = dist(lm[4], lm[8]);
+    const isPinching = pinchDist < 0.04;
 
-    if(pinch){
-        if(!holdStart) holdStart = Date.now();
+    if (isPinching) {
+        cursor.style.background = "#ff4d4d";
+        cursor.style.transform = "translate(-50%, -50%) scale(1.5)";
+        
+        if (!holdStart) holdStart = Date.now();
 
-        if(Date.now() - holdStart > 800){
+        if (Date.now() - holdStart > 1000) {
             triggerAction();
-            holdStart = null;
+            holdStart = Date.now() + 5000; // Кулдаун 5 секунд
         }
     } else {
+        cursor.style.background = "#00ffcc";
+        cursor.style.transform = "translate(-50%, -50%) scale(1)";
         holdStart = null;
     }
 });
 
-// действие
-function triggerAction(){
-    addMessage("Ты: команда");
-
-    setTimeout(()=>{
-        addMessage("GPT: выполнено");
-    },500);
+function triggerAction() {
+    addMessage("Вы: Выполни команду!", "user-msg");
+    setTimeout(() => {
+        addMessage("GPT: Жест распознан, команда выполнена успешно.", "ai-msg");
+    }, 600);
 }
 
-// камера (НЕ запускаем сразу!)
 const camera = new Camera(video, {
     onFrame: async () => {
         await hands.send({ image: video });
@@ -181,10 +212,10 @@ const camera = new Camera(video, {
     height: 720
 });
 
-// ✅ ВАЖНО: запуск только по клику
 startBtn.onclick = () => {
-    startScreen.style.display = "none";
-    status.innerText = "Запуск камеры...";
+    startScreen.style.opacity = "0";
+    setTimeout(() => startScreen.remove(), 500);
+    status.innerText = "Включаю камеру...";
     camera.start();
 };
 </script>
