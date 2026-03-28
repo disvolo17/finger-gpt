@@ -2,20 +2,21 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Magic Finger GPT</title>
+    <title>Magic Hands GPT — Final</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #020205; font-family: sans-serif; }
+        body { margin: 0; overflow: hidden; background: #050507; font-family: -apple-system, sans-serif; }
         
-        /* Видео теперь светлее и отзеркалено */
+        /* Видео: светлое и отзеркаленное по горизонтали */
         video {
             position: absolute;
             width: 100vw; height: 100vh;
             object-fit: cover;
             transform: scaleX(-1);
-            opacity: 0.3; /* Сделали посветлее */
+            opacity: 0.35;
             filter: brightness(1.2) contrast(1.1);
         }
 
+        /* Холст для рисования скелета и магии */
         canvas {
             position: absolute;
             top: 0; left: 0;
@@ -36,29 +37,33 @@
         }
 
         .glass {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(15px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 24px;
             padding: 20px;
             color: white;
             pointer-events: auto;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
         }
 
         #startScreen {
             position: fixed; inset: 0;
-            background: #050507;
+            background: radial-gradient(circle, #1a1a2e 0%, #050507 100%);
             display: flex; flex-direction: column;
             justify-content: center; align-items: center;
-            z-index: 100; color: white;
+            z-index: 100; color: white; text-align: center;
         }
 
         button {
-            padding: 15px 40px; border-radius: 30px; border: none;
-            background: #00ffcc; font-weight: bold; cursor: pointer;
+            padding: 16px 45px; border-radius: 30px; border: none;
+            background: #00ffcc; color: #050507; font-size: 18px;
+            font-weight: bold; cursor: pointer; transition: 0.3s;
         }
+        button:hover { transform: scale(1.05); box-shadow: 0 0 20px rgba(0,255,204,0.4); }
 
-        .status-tag { color: #00ffcc; font-family: monospace; }
+        .status-tag { color: #00ffcc; font-family: monospace; font-weight: bold; margin-bottom: 5px; }
+        #messages { font-size: 14px; opacity: 0.9; line-height: 1.4; }
     </style>
 </head>
 <body>
@@ -67,21 +72,21 @@
 <canvas id="output_canvas"></canvas>
 
 <div id="startScreen">
-    <h1>Magic Hands GPT</h1>
-    <p>Используй обе руки для управления магией</p>
-    <button id="startBtn">АКТИВИРОВАТЬ</button>
+    <h1 style="font-size: 42px; margin-bottom: 10px;">Magic Hands AI</h1>
+    <p style="opacity: 0.7; margin-bottom: 30px;">Управляй интерфейсом обеими руками в реальном времени</p>
+    <button id="startBtn">ЗАПУСТИТЬ СИСТЕМУ</button>
 </div>
 
 <div id="ui">
     <div style="display: flex; justify-content: space-between;">
         <div class="glass">
-            <div class="status-tag">SYSTEM: ONLINE</div>
-            <div id="handCount">Рук в кадре: 0</div>
+            <div class="status-tag">● SYSTEM ACTIVE</div>
+            <div id="handCount">Hands detected: 0</div>
         </div>
     </div>
     
-    <div id="chat" class="glass" style="width: 300px; height: 100px; overflow: hidden;">
-        <div id="messages">Ожидание жеста "Щипок"...</div>
+    <div id="chat" class="glass" style="width: 320px;">
+        <div id="messages">Соедини указательный и большой пальцы для активации магии...</div>
     </div>
 </div>
 
@@ -94,51 +99,68 @@ const video = document.getElementById('video');
 const canvasElement = document.getElementById('output_canvas');
 const canvasCtx = canvasElement.getContext('2d');
 const msgBox = document.getElementById('messages');
+const handCountLabel = document.getElementById('handCount');
+
+// Функция расчета расстояния между точками
+function dist(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+}
 
 function onResults(results) {
-    // Настройка размера холста
+    // Адаптация размера холста под окно
     canvasElement.width = window.innerWidth;
     canvasElement.height = window.innerHeight;
 
     canvasCtx.save();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-    document.getElementById('handCount').innerText = `Рук в кадре: ${results.multiHandLandmarks ? results.multiHandLandmarks.length : 0}`;
+    const handsFound = results.multiHandLandmarks ? results.multiHandLandmarks.length : 0;
+    handCountLabel.innerText = `Hands detected: ${handsFound}`;
 
     if (results.multiHandLandmarks) {
         for (let i = 0; i < results.multiHandLandmarks.length; i++) {
             const landmarks = results.multiHandLandmarks[i];
             
-            // Рисуем скелет руки
-            drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00ffcc', lineWidth: 2});
-            drawLandmarks(canvasCtx, landmarks, {color: '#ffffff', lineWidth: 1, radius: 3});
+            // ВАЖНО: Зеркалим координаты X, чтобы скелет совпал с отзеркаленным видео
+            const mirroredLandmarks = landmarks.map(point => ({
+                x: 1 - point.x, 
+                y: point.y,
+                z: point.z
+            }));
 
-            // Проверка щипка
-            const thumb = landmarks[4];
-            const index = landmarks[8];
-            const d = Math.hypot(thumb.x - index.x, thumb.y - index.y);
+            // Отрисовка скелета
+            drawConnectors(canvasCtx, mirroredLandmarks, HAND_CONNECTIONS, {color: '#00ffcc', lineWidth: 3});
+            drawLandmarks(canvasCtx, mirroredLandmarks, {color: '#ffffff', lineWidth: 1, radius: 3});
 
-            if (d < 0.05) {
-                // МАГИЯ: Рисуем вспышку в месте щипка
-                const x = (1 - index.x) * canvasElement.width; // Инверсия X
-                const y = index.y * canvasElement.height;
+            // Логика жеста (Pinch)
+            const thumb = mirroredLandmarks[4];
+            const index = mirroredLandmarks[8];
+            const pinchDist = dist(thumb, index);
 
-                createMagic(x, y);
-                if(i === 0) msgBox.innerText = "Магия активирована!";
+            if (pinchDist < 0.045) {
+                // Визуальный эффект магии в точке касания
+                drawMagicCircle(index.x * canvasElement.width, index.y * canvasElement.height);
+                msgBox.innerHTML = "<span style='color:#00ffcc'>[EVENT]:</span> Магия активирована в реальном времени!";
             }
         }
     }
     canvasCtx.restore();
 }
 
-function createMagic(x, y) {
-    canvasCtx.beginPath();
-    canvasCtx.arc(x, y, 15, 0, Math.PI * 2);
-    canvasCtx.fillStyle = "rgba(0, 255, 204, 0.5)";
-    canvasCtx.fill();
-    // Эффект свечения
-    canvasCtx.shadowBlur = 20;
+function drawMagicCircle(x, y) {
+    canvasCtx.shadowBlur = 25;
     canvasCtx.shadowColor = "#00ffcc";
+    canvasCtx.beginPath();
+    canvasCtx.arc(x, y, 20, 0, Math.PI * 2);
+    canvasCtx.fillStyle = "rgba(0, 255, 204, 0.6)";
+    canvasCtx.fill();
+    
+    // Дополнительный импульс
+    canvasCtx.beginPath();
+    canvasCtx.arc(x, y, 35, 0, Math.PI * 2);
+    canvasCtx.strokeStyle = "rgba(0, 255, 204, 0.3)";
+    canvasCtx.lineWidth = 2;
+    canvasCtx.stroke();
 }
 
 const hands = new Hands({
@@ -146,10 +168,10 @@ const hands = new Hands({
 });
 
 hands.setOptions({
-    maxNumHands: 2, // ДВЕ РУКИ
+    maxNumHands: 2, // Теперь видит две руки
     modelComplexity: 1,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6
 });
 
 hands.onResults(onResults);
@@ -163,8 +185,11 @@ const camera = new Camera(video, {
 });
 
 document.getElementById('startBtn').onclick = () => {
-    document.getElementById('startScreen').style.display = 'none';
-    camera.start();
+    document.getElementById('startScreen').style.opacity = '0';
+    setTimeout(() => {
+        document.getElementById('startScreen').style.display = 'none';
+        camera.start();
+    }, 400);
 };
 </script>
 </body>
