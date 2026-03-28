@@ -20,7 +20,7 @@ video {
     width:100vw;
     height:100vh;
     object-fit:cover;
-    opacity:0.06;
+    opacity:0.08;
 }
 
 /* старт экран */
@@ -36,8 +36,7 @@ video {
 }
 
 #startScreen h1 {
-    font-size:42px;
-    margin:0;
+    font-size:40px;
 }
 
 #startScreen p {
@@ -56,8 +55,6 @@ video {
 }
 
 /* UI */
-#ui { position:absolute; inset:0; pointer-events:none; }
-
 #status {
     position:absolute;
     top:20px;
@@ -66,7 +63,6 @@ video {
     opacity:0.6;
 }
 
-/* чат */
 #chat {
     position:absolute;
     bottom:30px;
@@ -83,7 +79,6 @@ video {
 .message {
     margin-bottom:10px;
     font-size:14px;
-    opacity:0.9;
 }
 
 /* курсор */
@@ -93,9 +88,8 @@ video {
     height:18px;
     border-radius:50%;
     background:#00ffcc;
-    transform:translate(-50%,-50%) scale(1);
+    transform:translate(-50%,-50%);
     pointer-events:none;
-    transition:0.1s;
 }
 </style>
 </head>
@@ -106,31 +100,28 @@ video {
 
 <div id="startScreen">
   <h1>Finger GPT</h1>
-  <p>Управляй AI с помощью жестов</p>
+  <p>Управляй AI руками</p>
   <button id="startBtn">Start</button>
 </div>
 
-<div id="ui">
-  <div id="status">Ready</div>
-  <div id="chat"></div>
-  <div id="cursor"></div>
-</div>
+<div id="status">Ready</div>
+<div id="chat"></div>
+<div id="cursor"></div>
 
-<script type="module">
-import { Hands } from "https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js";
-import { Camera } from "https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js";
+<!-- MediaPipe -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
-// UI
-const startScreen = document.getElementById("startScreen");
-const startBtn = document.getElementById("startBtn");
-const cursorEl = document.getElementById("cursor");
+<script>
+const video = document.getElementById("video");
+const cursor = document.getElementById("cursor");
 const chat = document.getElementById("chat");
 const status = document.getElementById("status");
+const startScreen = document.getElementById("startScreen");
 
 // старт
-startBtn.onclick = () => {
+document.getElementById("startBtn").onclick = () => {
     startScreen.style.display = "none";
-    showHint("Покажи руку 👋");
 };
 
 // сообщения
@@ -139,39 +130,21 @@ function addMessage(text){
     div.className = "message";
     div.innerText = text;
     chat.appendChild(div);
-    chat.scrollTop = chat.scrollHeight;
 }
 
-// hint
-function showHint(text){
-    status.innerText = text;
-}
-
-// AI ответы
-const responses = [
-    "Анализирую...",
-    "Обрабатываю запрос",
-    "Готово",
-    "Интересная команда",
-    "Запускаю систему"
-];
-
-// ===== HAND =====
-const video = document.getElementById("video");
-
-let cursor = {x:0,y:0};
-let lastPinch = false;
-let holdStart = null;
-
+// расстояние
 function dist(a,b){
     return Math.hypot(a.x-b.x, a.y-b.y);
 }
 
+// pinch
 function isPinch(lm){
     return dist(lm[4], lm[8]) < 0.05;
 }
 
-// ===== TRACKING =====
+let holdStart = null;
+
+// MediaPipe
 const hands = new Hands({
     locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
 });
@@ -182,27 +155,22 @@ hands.setOptions({
     minTrackingConfidence:0.7
 });
 
-hands.onResults(res=>{
+hands.onResults(res => {
     if(!res.multiHandLandmarks) return;
 
     const lm = res.multiHandLandmarks[0];
 
-    cursor.x = lm[8].x * window.innerWidth;
-    cursor.y = lm[8].y * window.innerHeight;
+    const x = lm[8].x * window.innerWidth;
+    const y = lm[8].y * window.innerHeight;
 
-    cursorEl.style.left = cursor.x + "px";
-    cursorEl.style.top = cursor.y + "px";
+    cursor.style.left = x + "px";
+    cursor.style.top = y + "px";
 
     const pinch = isPinch(lm);
 
-    cursorEl.style.background = pinch ? "#ff4d4d" : "#00ffcc";
+    cursor.style.background = pinch ? "#ff4d4d" : "#00ffcc";
 
-    // анимация курсора
-    cursorEl.style.transform = pinch
-        ? "translate(-50%,-50%) scale(1.6)"
-        : "translate(-50%,-50%) scale(1)";
-
-    // HOLD (магия)
+    // HOLD gesture
     if(pinch){
         if(!holdStart) holdStart = Date.now();
 
@@ -213,29 +181,27 @@ hands.onResults(res=>{
     } else {
         holdStart = null;
     }
-
-    lastPinch = pinch;
 });
 
 // действие
 function triggerAction(){
     addMessage("Ты: команда");
 
-    const reply = responses[Math.floor(Math.random()*responses.length)];
-
     setTimeout(()=>{
-        addMessage("GPT: " + reply);
+        addMessage("GPT: выполнено");
     },500);
 }
 
 // камера
-const cam = new Camera(video,{
-    onFrame: async ()=> await hands.send({image:video}),
-    width:1280,
-    height:720
+const camera = new Camera(video, {
+    onFrame: async () => {
+        await hands.send({ image: video });
+    },
+    width: 1280,
+    height: 720
 });
-cam.start();
 
+camera.start();
 </script>
 
 </body>
