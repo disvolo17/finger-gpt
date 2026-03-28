@@ -2,146 +2,143 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Finger GPT - Контроллер</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magic Finger GPT</title>
     <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            background: #050507;
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            color: white;
-        }
-
-        /* Видео зеркально отражено для удобства управления */
+        body { margin: 0; overflow: hidden; background: #020205; font-family: sans-serif; }
+        
+        /* Видео теперь светлее и отзеркалено */
         video {
             position: absolute;
-            width: 100vw;
-            height: 100vh;
+            width: 100vw; height: 100vh;
             object-fit: cover;
-            opacity: 0.15;
             transform: scaleX(-1);
+            opacity: 0.3; /* Сделали посветлее */
+            filter: brightness(1.2) contrast(1.1);
+        }
+
+        canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 5;
+            pointer-events: none;
+        }
+
+        #ui {
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 30px;
+            pointer-events: none;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            padding: 20px;
+            color: white;
+            pointer-events: auto;
         }
 
         #startScreen {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            background: radial-gradient(circle, #1a1a2e 0%, #050507 100%);
-            z-index: 10;
-            text-align: center;
+            position: fixed; inset: 0;
+            background: #050507;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            z-index: 100; color: white;
         }
 
-        #startBtn {
-            padding: 15px 40px;
-            border-radius: 30px;
-            border: none;
-            background: #00ffcc;
-            color: #050507;
-            font-size: 18px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: transform 0.2s;
+        button {
+            padding: 15px 40px; border-radius: 30px; border: none;
+            background: #00ffcc; font-weight: bold; cursor: pointer;
         }
 
-        #startBtn:hover { transform: scale(1.05); }
-
-        #status {
-            position: absolute;
-            top: 20px;
-            right: 30px;
-            font-size: 14px;
-            letter-spacing: 1px;
-            color: #00ffcc;
-            text-transform: uppercase;
-        }
-
-        #chat {
-            position: absolute;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 400px;
-            max-width: 85vw;
-            height: 150px;
-            padding: 20px;
-            border-radius: 24px;
-            background: rgba(255, 255, 255, 0.07);
-            backdrop-filter: blur(25px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column-reverse;
-        }
-
-        .message {
-            margin-top: 8px;
-            padding: 8px 12px;
-            border-radius: 12px;
-            font-size: 14px;
-            animation: fadeIn 0.3s ease;
-        }
-
-        .user-msg { background: rgba(0, 255, 204, 0.1); color: #00ffcc; align-self: flex-end; }
-        .ai-msg { background: rgba(255, 255, 255, 0.1); color: #fff; align-self: flex-start; }
-
-        #cursor {
-            position: absolute;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: #00ffcc;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-            box-shadow: 0 0 20px #00ffcc;
-            transition: background 0.2s, transform 0.1s;
-            z-index: 100;
-        }
-
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .status-tag { color: #00ffcc; font-family: monospace; }
     </style>
 </head>
 <body>
 
 <video id="video" autoplay playsinline></video>
+<canvas id="output_canvas"></canvas>
 
 <div id="startScreen">
-    <h1>Finger GPT</h1>
-    <p>Соедини большой и указательный пальцы на 1 сек</p>
-    <button id="startBtn">Запустить AI</button>
+    <h1>Magic Hands GPT</h1>
+    <p>Используй обе руки для управления магией</p>
+    <button id="startBtn">АКТИВИРОВАТЬ</button>
 </div>
 
-<div id="status">Ожидание...</div>
-<div id="chat"></div>
-<div id="cursor"></div>
+<div id="ui">
+    <div style="display: flex; justify-content: space-between;">
+        <div class="glass">
+            <div class="status-tag">SYSTEM: ONLINE</div>
+            <div id="handCount">Рук в кадре: 0</div>
+        </div>
+    </div>
+    
+    <div id="chat" class="glass" style="width: 300px; height: 100px; overflow: hidden;">
+        <div id="messages">Ожидание жеста "Щипок"...</div>
+    </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
 <script>
-const video = document.getElementById("video");
-const cursor = document.getElementById("cursor");
-const chat = document.getElementById("chat");
-const status = document.getElementById("status");
-const startScreen = document.getElementById("startScreen");
-const startBtn = document.getElementById("startBtn");
+const video = document.getElementById('video');
+const canvasElement = document.getElementById('output_canvas');
+const canvasCtx = canvasElement.getContext('2d');
+const msgBox = document.getElementById('messages');
 
-let holdStart = null;
-let lastX = 0, lastY = 0; // Для сглаживания
+function onResults(results) {
+    // Настройка размера холста
+    canvasElement.width = window.innerWidth;
+    canvasElement.height = window.innerHeight;
 
-function addMessage(text, type) {
-    const div = document.createElement("div");
-    div.className = `message ${type}`;
-    div.innerText = text;
-    chat.prepend(div);
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+    document.getElementById('handCount').innerText = `Рук в кадре: ${results.multiHandLandmarks ? results.multiHandLandmarks.length : 0}`;
+
+    if (results.multiHandLandmarks) {
+        for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+            const landmarks = results.multiHandLandmarks[i];
+            
+            // Рисуем скелет руки
+            drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00ffcc', lineWidth: 2});
+            drawLandmarks(canvasCtx, landmarks, {color: '#ffffff', lineWidth: 1, radius: 3});
+
+            // Проверка щипка
+            const thumb = landmarks[4];
+            const index = landmarks[8];
+            const d = Math.hypot(thumb.x - index.x, thumb.y - index.y);
+
+            if (d < 0.05) {
+                // МАГИЯ: Рисуем вспышку в месте щипка
+                const x = (1 - index.x) * canvasElement.width; // Инверсия X
+                const y = index.y * canvasElement.height;
+
+                createMagic(x, y);
+                if(i === 0) msgBox.innerText = "Магия активирована!";
+            }
+        }
+    }
+    canvasCtx.restore();
 }
 
-// Расстояние между точками
-function dist(a, b) {
-    return Math.hypot(a.x - b.x, a.y - b.y);
+function createMagic(x, y) {
+    canvasCtx.beginPath();
+    canvasCtx.arc(x, y, 15, 0, Math.PI * 2);
+    canvasCtx.fillStyle = "rgba(0, 255, 204, 0.5)";
+    canvasCtx.fill();
+    // Эффект свечения
+    canvasCtx.shadowBlur = 20;
+    canvasCtx.shadowColor = "#00ffcc";
 }
 
 const hands = new Hands({
@@ -149,76 +146,26 @@ const hands = new Hands({
 });
 
 hands.setOptions({
-    maxNumHands: 1,
+    maxNumHands: 2, // ДВЕ РУКИ
     modelComplexity: 1,
-    minDetectionConfidence: 0.6,
-    minTrackingConfidence: 0.6
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
 });
 
-hands.onResults(results => {
-    if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-        status.innerText = "Рука не видна";
-        return;
-    }
-    status.innerText = "Система активна";
-
-    const lm = results.multiHandLandmarks[0];
-    
-    // Координаты кончика указательного пальца (8 точка)
-    // Инвертируем X (1 - lm[8].x) для зеркального эффекта
-    const targetX = (1 - lm[8].x) * window.innerWidth;
-    const targetY = lm[8].y * window.innerHeight;
-
-    // Сглаживание движения (линейная интерполяция)
-    lastX += (targetX - lastX) * 0.3;
-    lastY += (targetY - lastY) * 0.3;
-
-    cursor.style.left = `${lastX}px`;
-    cursor.style.top = `${lastY}px`;
-
-    // Расстояние щипка (между 4 и 8 точками)
-    const pinchDist = dist(lm[4], lm[8]);
-    const isPinching = pinchDist < 0.04;
-
-    if (isPinching) {
-        cursor.style.background = "#ff4d4d";
-        cursor.style.transform = "translate(-50%, -50%) scale(1.5)";
-        
-        if (!holdStart) holdStart = Date.now();
-
-        if (Date.now() - holdStart > 1000) {
-            triggerAction();
-            holdStart = Date.now() + 5000; // Кулдаун 5 секунд
-        }
-    } else {
-        cursor.style.background = "#00ffcc";
-        cursor.style.transform = "translate(-50%, -50%) scale(1)";
-        holdStart = null;
-    }
-});
-
-function triggerAction() {
-    addMessage("Вы: Выполни команду!", "user-msg");
-    setTimeout(() => {
-        addMessage("GPT: Жест распознан, команда выполнена успешно.", "ai-msg");
-    }, 600);
-}
+hands.onResults(onResults);
 
 const camera = new Camera(video, {
     onFrame: async () => {
-        await hands.send({ image: video });
+        await hands.send({image: video});
     },
     width: 1280,
     height: 720
 });
 
-startBtn.onclick = () => {
-    startScreen.style.opacity = "0";
-    setTimeout(() => startScreen.remove(), 500);
-    status.innerText = "Включаю камеру...";
+document.getElementById('startBtn').onclick = () => {
+    document.getElementById('startScreen').style.display = 'none';
     camera.start();
 };
 </script>
-
 </body>
 </html>
