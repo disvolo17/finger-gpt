@@ -14,7 +14,6 @@ body {
     color:white;
 }
 
-/* камера */
 video {
     position:absolute;
     width:100vw;
@@ -23,7 +22,6 @@ video {
     opacity:0.08;
 }
 
-/* старт экран */
 #startScreen {
     position:absolute;
     inset:0;
@@ -33,15 +31,6 @@ video {
     align-items:center;
     background:#050507;
     z-index:10;
-}
-
-#startScreen h1 {
-    font-size:40px;
-}
-
-#startScreen p {
-    opacity:0.6;
-    margin:10px 0 20px;
 }
 
 #startBtn {
@@ -54,7 +43,6 @@ video {
     cursor:pointer;
 }
 
-/* UI */
 #status {
     position:absolute;
     top:20px;
@@ -81,7 +69,6 @@ video {
     font-size:14px;
 }
 
-/* курсор */
 #cursor {
     position:absolute;
     width:18px;
@@ -108,7 +95,6 @@ video {
 <div id="chat"></div>
 <div id="cursor"></div>
 
-<!-- MediaPipe -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
@@ -118,11 +104,7 @@ const cursor = document.getElementById("cursor");
 const chat = document.getElementById("chat");
 const status = document.getElementById("status");
 const startScreen = document.getElementById("startScreen");
-
-// старт
-document.getElementById("startBtn").onclick = () => {
-    startScreen.style.display = "none";
-};
+const startBtn = document.getElementById("startBtn");
 
 // сообщения
 function addMessage(text){
@@ -167,10 +149,8 @@ hands.onResults(res => {
     cursor.style.top = y + "px";
 
     const pinch = isPinch(lm);
-
     cursor.style.background = pinch ? "#ff4d4d" : "#00ffcc";
 
-    // HOLD gesture
     if(pinch){
         if(!holdStart) holdStart = Date.now();
 
@@ -192,7 +172,7 @@ function triggerAction(){
     },500);
 }
 
-// камера
+// камера (НЕ запускаем сразу!)
 const camera = new Camera(video, {
     onFrame: async () => {
         await hands.send({ image: video });
@@ -201,7 +181,12 @@ const camera = new Camera(video, {
     height: 720
 });
 
-camera.start();
+// ✅ ВАЖНО: запуск только по клику
+startBtn.onclick = () => {
+    startScreen.style.display = "none";
+    status.innerText = "Запуск камеры...";
+    camera.start();
+};
 </script>
 
 </body>
