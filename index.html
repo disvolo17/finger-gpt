@@ -2,166 +2,236 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Magic Finger GPT - Ultimate</title>
+    <title>Generative Art - Magic Hands</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #020205; font-family: 'Segoe UI', sans-serif; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
         video {
             position: absolute; width: 100vw; height: 100vh;
             object-fit: cover; transform: scaleX(-1); opacity: 0.2;
-            filter: brightness(0.8) contrast(1.2);
+            filter: contrast(1.3) brightness(0.8);
         }
-        canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 10; }
+        canvas {
+            position: absolute; top: 0; left: 0;
+            width: 100vw; height: 100vh; z-index: 10;
+        }
         #ui {
-            position: absolute; top: 20px; left: 20px; z-index: 20;
-            padding: 15px 25px; background: rgba(0, 255, 204, 0.05);
-            backdrop-filter: blur(10px); border-radius: 15px;
-            color: #00ffcc; font-family: monospace; border: 1px solid rgba(0, 255, 204, 0.2);
-            pointer-events: none; transition: 0.5s;
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            z-index: 20; color: rgba(255,255,255,0.7); font-size: 14px; letter-spacing: 2px;
+            pointer-events: none; text-align: center;
         }
         #btn {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            z-index: 100; padding: 20px 50px; background: transparent; border: 2px solid #00ffcc;
-            color: #00ffcc; border-radius: 50px; font-weight: bold; cursor: pointer; font-size: 20px;
-            text-transform: uppercase; letter-spacing: 4px; transition: 0.3s;
+            z-index: 100; padding: 15px 40px; background: none; border: 1px solid #fff;
+            color: #fff; border-radius: 30px; cursor: pointer; text-transform: uppercase;
+            letter-spacing: 2px; transition: 0.3s;
         }
-        #btn:hover { background: #00ffcc; color: #000; box-shadow: 0 0 30px #00ffcc; }
+        #btn:hover { background: #fff; color: #000; box-shadow: 0 0 20px #fff; }
     </style>
 </head>
 <body>
 
 <video id="video" autoplay playsinline></video>
 <canvas id="output_canvas"></canvas>
-<div id="ui">SYSTEM READY // AWAITING NEURAL LINK</div>
-<button id="btn">Activate Magic</button>
+<div id="ui">AWAITING SYSTEM...</div>
+<button id="btn">Activate Generative Art</button>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
 <script>
 const video = document.getElementById('video');
-const canvasElement = document.getElementById('output_canvas');
-const canvasCtx = canvasElement.getContext('2d');
+const canvas = document.getElementById('output_canvas');
+const ctx = canvas.getContext('2d');
 const ui = document.getElementById('ui');
 
-// ===== AUDIO (Синтезатор клика) =====
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-function playMagicSound() {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(1000, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-    osc.connect(gain); gain.connect(audioCtx.destination);
-    osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+// Глобальные переменные для рендеринга
+let currentHands = [];
+let smoothedHands = []; // Для плавности
+let time = 0;
+
+// Цветовая палитра как в референсе (неон, белый, розовый, синий)
+const colors = ['#ffffff', '#ff007f', '#00ffcc', '#b026ff', '#7df9ff'];
+
+// ===== УТИЛИТЫ =====
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function lerp(start, end, amt) { return (1 - amt) * start + amt * end; }
+
+// Отрисовка звезды на конце линии
+function drawStar(cx, cy, spikes, outerRadius, innerRadius, color) {
+    let rot = Math.PI / 2 * 3;
+    let step = Math.PI / spikes;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - outerRadius);
+    for (let i = 0; i < spikes; i++) {
+        let x = cx + Math.cos(rot) * outerRadius;
+        let y = cy + Math.sin(rot) * outerRadius;
+        ctx.lineTo(x, y);
+        rot += step;
+        x = cx + Math.cos(rot) * innerRadius;
+        y = cy + Math.sin(rot) * innerRadius;
+        ctx.lineTo(x, y);
+        rot += step;
+    }
+    ctx.lineTo(cx, cy - outerRadius);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
 }
 
-// ===== GRAPHICS ENGINE =====
-const particles = [];
-const trails = []; // Хвосты для кончиков пальцев
-
-function spawnExplosion(x, y) {
-    for (let i = 0; i < 25; i++) {
-        particles.push({
-            x, y,
-            vx: (Math.random() - 0.5) * 15,
-            vy: (Math.random() - 0.5) * 15,
-            life: 1.0,
-            hue: Math.random() * 50 + 160 // Бирюзово-синяя гамма
-        });
-    }
-}
-
-function animate() {
-    // Эффект накопления (trail effect)
-    canvasCtx.fillStyle = 'rgba(2, 2, 5, 0.15)';
-    canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
-
-    // Рисуем хвосты (ленты)
-    canvasCtx.lineWidth = 2;
-    for (let i = trails.length - 1; i >= 0; i--) {
-        const t = trails[i];
-        t.life *= 0.95;
-        canvasCtx.strokeStyle = `hsla(${t.hue}, 100%, 50%, ${t.life})`;
-        canvasCtx.beginPath();
-        canvasCtx.moveTo(t.ox, t.oy);
-        canvasCtx.lineTo(t.nx, t.ny);
-        canvasCtx.stroke();
-        if (t.life < 0.01) trails.splice(i, 1);
-    }
-
-    // Рисуем частицы
-    for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        p.x += p.vx; p.y += p.vy;
-        p.vy += 0.2; // Гравитация
-        p.life *= 0.96;
-        canvasCtx.fillStyle = `hsla(${p.hue}, 100%, 60%, ${p.life})`;
-        canvasCtx.beginPath();
-        canvasCtx.arc(p.x, p.y, p.life * 4, 0, Math.PI * 2);
-        canvasCtx.fill();
-        if (p.life < 0.01) particles.splice(i, 1);
-    }
-    requestAnimationFrame(animate);
-}
-animate();
-
-// ===== HAND TRACKING =====
-let lastTrigger = 0;
-let lastPositions = {}; // Для хранения предыдущих координат пальцев
-
-function onResults(results) {
-    canvasElement.width = window.innerWidth;
-    canvasElement.height = window.innerHeight;
-
-    if (results.multiHandLandmarks) {
-        ui.innerText = `LINK STABLE // HANDS DETECTED: ${results.multiHandLandmarks.length}`;
+// Генерация "оптоволокна" из точки
+function drawVines(x, y, count, baseLength, seedOffset) {
+    for (let i = 0; i < count; i++) {
+        const seed = i * 1.5 + seedOffset;
+        const color = colors[i % colors.length];
         
-        results.multiHandLandmarks.forEach((landmarks, handIdx) => {
-            const m = landmarks.map(p => ({
-                x: (1 - p.x) * canvasElement.width,
-                y: p.y * canvasElement.height
-            }));
+        // Математика для извивающихся линий (процедурная анимация)
+        const length = baseLength + Math.sin(time * 2 + seed) * (baseLength * 0.3);
+        // Линии тянутся вверх (negative Y) и немного расходятся в стороны
+        const spreadX = Math.sin(time * 1.5 + seed * 2) * 60 + (i - count/2) * 20;
+        const spreadY = -length + Math.cos(time * 3 + seed) * 20; 
 
-            // Рисуем футуристичный скелет
-            drawConnectors(canvasCtx, m, HAND_CONNECTIONS, {color: 'rgba(0, 255, 204, 0.2)', lineWidth: 1});
+        const endX = x + spreadX;
+        const endY = y + spreadY;
 
-            // Генерируем ленты для каждого кончика пальца
-            const tips = [4, 8, 12, 16, 20];
-            tips.forEach(idx => {
-                const key = `${handIdx}-${idx}`;
-                if (lastPositions[key]) {
-                    trails.push({
-                        ox: lastPositions[key].x, oy: lastPositions[key].y,
-                        nx: m[idx].x, ny: m[idx].y,
-                        life: 1.0, hue: 180
-                    });
-                }
-                lastPositions[key] = { x: m[idx].x, y: m[idx].y };
+        // Контрольные точки для кривой Безье (чтобы линия гнулась)
+        const cp1x = x + spreadX * 0.2;
+        const cp1y = y + spreadY * 0.5 + Math.sin(time * 4 + seed)*20;
+
+        // Рисуем линию
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.quadraticCurveTo(cp1x, cp1y, endX, endY);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.8;
+        ctx.stroke();
+
+        // Рисуем звезду на конце
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = color;
+        drawStar(endX, endY, 4, 6, 1.5, '#fff');
+        ctx.shadowBlur = 0;
+    }
+}
+
+// Генерация мандалы на ладони
+function drawMandala(x, y, radius, alpha) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.globalAlpha = alpha;
+    
+    // Вращение слоев в разные стороны
+    ctx.rotate(time * 0.5);
+    
+    // Внешнее пунктирное кольцо
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = colors[1];
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 15]);
+    ctx.stroke();
+
+    ctx.rotate(-time * 0.8);
+    
+    // Внутренняя геометрия
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.6, 0, Math.PI * 2);
+    ctx.strokeStyle = colors[2];
+    ctx.setLineDash([2, 5]);
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+    // Рисуем лепестки/треугольники
+    for(let i=0; i<8; i++) {
+        ctx.rotate(Math.PI / 4);
+        ctx.beginPath();
+        ctx.moveTo(0, radius * 0.3);
+        ctx.lineTo(10, radius * 0.5);
+        ctx.lineTo(-10, radius * 0.5);
+        ctx.closePath();
+        ctx.strokeStyle = colors[0];
+        ctx.stroke();
+    }
+    
+    ctx.restore();
+}
+
+// ===== ГЛАВНЫЙ ЦИКЛ РЕНДЕРИНГА =====
+function animate() {
+    canvas.width = video.clientWidth;
+    canvas.height = video.clientHeight;
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Включаем режим наложения для эффекта свечения
+    ctx.globalCompositeOperation = 'screen';
+
+    if (currentHands.length > 0) {
+        ui.innerText = "GENERATIVE ART ACTIVE";
+
+        currentHands.forEach((hand, hIdx) => {
+            // 1. Сглаживание координат (Lerp)
+            if (!smoothedHands[hIdx]) smoothedHands[hIdx] = JSON.parse(JSON.stringify(hand));
+            hand.forEach((p, i) => {
+                smoothedHands[hIdx][i].x = lerp(smoothedHands[hIdx][i].x, p.x, 0.2);
+                smoothedHands[hIdx][i].y = lerp(smoothedHands[hIdx][i].y, p.y, 0.2);
             });
 
-            // Логика щипка (pinch)
-            const d = Math.hypot(m[4].x - m[8].x, m[4].y - m[8].y);
-            if (d < 40) {
-                canvasCtx.shadowBlur = 30;
-                canvasCtx.shadowColor = "#00ffcc";
-                canvasCtx.fillStyle = "#fff";
-                canvasCtx.beginPath();
-                canvasCtx.arc(m[8].x, m[8].y, 10, 0, Math.PI * 2);
-                canvasCtx.fill();
-                canvasCtx.shadowBlur = 0;
+            const sHand = smoothedHands[hIdx];
 
-                if (Date.now() - lastTrigger > 200) {
-                    playMagicSound();
-                    spawnExplosion(m[8].x, m[8].y);
-                    lastTrigger = Date.now();
-                }
+            // 2. Логика жестов
+            const wrist = sHand[0];
+            const middleTip = sHand[12];
+            const thumbTip = sHand[4];
+            const indexTip = sHand[8];
+            
+            // Центр ладони (примерно 9 точка)
+            const palmX = sHand[9].x * canvas.width;
+            const palmY = sHand[9].y * canvas.height;
+
+            const isHandOpen = dist(wrist, middleTip) > 0.4; // Раскрыта ли ладонь
+            const pinchDist = dist(thumbTip, indexTip); // Расстояние щипка
+
+            if (pinchDist < 0.05) {
+                // ЖЕСТ: Щипок. Фонтан из точки щипка.
+                const px = indexTip.x * canvas.width;
+                const py = indexTip.y * canvas.height;
+                drawVines(px, py, 15, 200, 100);
+            } 
+            else if (isHandOpen) {
+                // ЖЕСТ: Раскрытая ладонь. Мандала + нити из всех пальцев.
+                drawMandala(palmX, palmY, 70, 1);
+                
+                // Рисуем нити для кончиков пальцев (4, 8, 12, 16, 20)
+                [4, 8, 12, 16, 20].forEach((tipIdx, i) => {
+                    const tx = sHand[tipIdx].x * canvas.width;
+                    const ty = sHand[tipIdx].y * canvas.height;
+                    drawVines(tx, ty, 4, 120, tipIdx * 10); 
+                });
+            } else {
+                // Промежуточное состояние - легкое свечение в центре ладони
+                drawMandala(palmX, palmY, 40, 0.3);
             }
         });
     } else {
-        ui.innerText = "SEARCHING FOR NEURAL SIGNAL...";
+        ui.innerText = "SHOW HAND TO CAMERA";
+        smoothedHands = []; // Сброс сглаживания
+    }
+
+    time += 0.02; // Скорость анимации
+    requestAnimationFrame(animate);
+}
+
+// ===== НАСТРОЙКА MEDIAPIPE =====
+function onResults(results) {
+    if (results.multiHandLandmarks) {
+        // Зеркалируем координаты сразу при получении
+        currentHands = results.multiHandLandmarks.map(hand => 
+            hand.map(p => ({ x: 1 - p.x, y: p.y, z: p.z }))
+        );
+    } else {
+        currentHands = [];
     }
 }
 
@@ -174,10 +244,11 @@ const camera = new Camera(video, {
     width: 1280, height: 720
 });
 
+// Запуск
 document.getElementById('btn').onclick = (e) => {
-    audioCtx.resume();
-    e.target.remove();
+    e.target.style.display = 'none';
     camera.start();
+    animate(); // Запускаем независимый цикл рендеринга
 };
 </script>
 </body>
