@@ -1,77 +1,151 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <title>Finger GPT Fixed</title>
-    <style>
-        body { margin: 0; overflow: hidden; background: #000; }
-        video {
-            position: absolute; width: 100vw; height: 100vh;
-            object-fit: cover; transform: scaleX(-1); opacity: 0.4;
-        }
-        canvas {
-            position: absolute; top: 0; left: 0;
-            width: 100vw; height: 100vh; z-index: 10;
-        }
-        #ui { position: absolute; top: 20px; left: 20px; z-index: 20; color: #00ffcc; font-family: monospace; }
-        #btn { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 30; padding: 20px; cursor: pointer; }
-    </style>
-</head>
-<body>
-    <video id="video" autoplay playsinline></video>
-    <canvas id="output_canvas"></canvas>
-    <div id="ui">SYSTEM READY</div>
-    <button id="btn">START MAGIC</button>
+<script>
+const video = document.getElementById('video');
+const canvasElement = document.getElementById('output_canvas');
+const canvasCtx = canvasElement.getContext('2d');
+const ui = document.getElementById('ui');
 
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+function resizeCanvas() {
+    canvasElement.width = video.clientWidth;
+    canvasElement.height = video.clientHeight;
+}
+window.addEventListener("resize", resizeCanvas);
 
-    <script>
-        const video = document.getElementById('video');
-        const canvasElement = document.getElementById('output_canvas');
-        const canvasCtx = canvasElement.getContext('2d');
+// ===== UTILS =====
+function dist(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+}
 
-        function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+// ===== PARTICLES =====
+const particles = [];
 
-        function onResults(results) {
-            canvasElement.width = video.clientWidth;
-            canvasElement.height = video.clientHeight;
-            canvasCtx.save();
-            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+function spawnParticles(x, y) {
+    for (let i = 0; i < 12; i++) {
+        particles.push({
+            x, y,
+            vx: (Math.random() - 0.5) * 4,
+            vy: (Math.random() - 0.5) * 4,
+            life: 1
+        });
+    }
+}
 
-            if (results.multiHandLandmarks) {
-                for (const landmarks of results.multiHandLandmarks) {
-                    const mirrored = landmarks.map(p => ({x: 1-p.x, y: p.y, z: p.z}));
-                    drawConnectors(canvasCtx, mirrored, HAND_CONNECTIONS, {color: '#00ffcc', lineWidth: 5});
-                    drawLandmarks(canvasCtx, mirrored, {color: '#fff', radius: 3});
-                    
-                    if (dist(mirrored[4], mirrored[8]) < 0.05) {
-                        canvasCtx.fillStyle = '#ff4d4d';
-                        canvasCtx.shadowBlur = 20;
-                        canvasCtx.shadowColor = '#ff4d4d';
-                        canvasCtx.beginPath();
-                        canvasCtx.arc(mirrored[8].x * canvasElement.width, mirrored[8].y * canvasElement.height, 20, 0, 2*Math.PI);
-                        canvasCtx.fill();
-                    }
+function drawParticles() {
+    particles.forEach((p, i) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life *= 0.95;
+
+        canvasCtx.fillStyle = `rgba(0,255,204,${p.life})`;
+        canvasCtx.beginPath();
+        canvasCtx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        canvasCtx.fill();
+
+        if (p.life < 0.05) particles.splice(i, 1);
+    });
+}
+
+// ===== STATE =====
+let lastTrigger = 0;
+
+// ===== MAIN =====
+function onResults(results) {
+    resizeCanvas();
+
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+    let handsCount = 0;
+
+    if (results.multiHandLandmarks) {
+        handsCount = results.multiHandLandmarks.length;
+
+        for (const landmarks of results.multiHandLandmarks) {
+
+            const m = landmarks.map(p => ({
+                x: 1 - p.x,
+                y: p.y,
+                z: p.z
+            }));
+
+            // skeleton
+            drawConnectors(canvasCtx, m, HAND_CONNECTIONS, {
+                color: '#00ffcc',
+                lineWidth: 4
+            });
+
+            drawLandmarks(canvasCtx, m, {
+                color: '#ffffff',
+                radius: 2
+            });
+
+            const x = m[8].x * canvasElement.width;
+            const y = m[8].y * canvasElement.height;
+
+            const d = dist(m[4], m[8]);
+
+            // 👆 hover эффект
+            if (d < 0.09 && d > 0.05) {
+                canvasCtx.beginPath();
+                canvasCtx.arc(x, y, 15, 0, Math.PI * 2);
+                canvasCtx.strokeStyle = "rgba(0,255,204,0.5)";
+                canvasCtx.lineWidth = 2;
+                canvasCtx.stroke();
+            }
+
+            // 🔥 pinch
+            if (d < 0.05) {
+
+                // glow
+                canvasCtx.shadowBlur = 30;
+                canvasCtx.shadowColor = "#ff4d4d";
+
+                canvasCtx.beginPath();
+                canvasCtx.arc(x, y, 18, 0, Math.PI * 2);
+                canvasCtx.fillStyle = "#ff4d4d";
+                canvasCtx.fill();
+
+                // анти-спам
+                if (Date.now() - lastTrigger > 200) {
+                    spawnParticles(x, y);
+                    lastTrigger = Date.now();
                 }
             }
-            canvasCtx.restore();
         }
+    }
 
-        const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
-        hands.setOptions({maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5});
-        hands.onResults(onResults);
+    drawParticles();
 
-        const camera = new Camera(video, {
-            onFrame: async () => { await hands.send({image: video}); },
-            width: 1280, height: 720
-        });
+    // UI
+    ui.innerText = `SYSTEM ACTIVE | HANDS: ${handsCount}`;
 
-        document.getElementById('btn').onclick = (e) => {
-            e.target.remove();
-            camera.start();
-        };
-    </script>
-</body>
-</html>
+    canvasCtx.restore();
+}
+
+// ===== INIT =====
+const hands = new Hands({
+    locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+});
+
+hands.setOptions({
+    maxNumHands: 2,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6
+});
+
+hands.onResults(onResults);
+
+const camera = new Camera(video, {
+    onFrame: async () => {
+        await hands.send({ image: video });
+    },
+    width: 1280,
+    height: 720
+});
+
+// START
+document.getElementById('btn').onclick = (e) => {
+    e.target.remove();
+    camera.start();
+};
+</script>
