@@ -20,38 +20,50 @@ video {
     width:100vw;
     height:100vh;
     object-fit:cover;
-    opacity:0.08;
+    opacity:0.06;
+}
+
+/* старт экран */
+#startScreen {
+    position:absolute;
+    inset:0;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    background:#050507;
+    z-index:10;
+}
+
+#startScreen h1 {
+    font-size:42px;
+    margin:0;
+}
+
+#startScreen p {
+    opacity:0.6;
+    margin:10px 0 20px;
+}
+
+#startBtn {
+    padding:12px 28px;
+    border-radius:20px;
+    border:none;
+    background:white;
+    color:black;
+    font-size:16px;
+    cursor:pointer;
 }
 
 /* UI */
-#ui {
+#ui { position:absolute; inset:0; pointer-events:none; }
+
+#status {
     position:absolute;
-    inset:0;
-    pointer-events:none;
-}
-
-/* центр */
-#centerBox {
-    position:absolute;
-    top:50%;
-    left:50%;
-    transform:translate(-50%,-50%);
-    padding:20px 28px;
-    border-radius:20px;
-    background:rgba(255,255,255,0.05);
-    backdrop-filter:blur(20px);
-    text-align:center;
-}
-
-#title {
-    font-size:26px;
-    font-weight:600;
-}
-
-#subtitle {
-    font-size:14px;
+    top:20px;
+    right:30px;
+    font-size:12px;
     opacity:0.6;
-    margin-top:6px;
 }
 
 /* чат */
@@ -60,7 +72,7 @@ video {
     bottom:30px;
     left:50%;
     transform:translateX(-50%);
-    width:400px;
+    width:420px;
     max-width:90vw;
     padding:16px;
     border-radius:20px;
@@ -71,26 +83,17 @@ video {
 .message {
     margin-bottom:10px;
     font-size:14px;
-    opacity:0.85;
-}
-
-/* статус */
-#status {
-    position:absolute;
-    top:20px;
-    right:30px;
-    font-size:12px;
-    opacity:0.6;
+    opacity:0.9;
 }
 
 /* курсор */
 #cursor {
     position:absolute;
-    width:20px;
-    height:20px;
+    width:18px;
+    height:18px;
     border-radius:50%;
     background:#00ffcc;
-    transform:translate(-50%,-50%);
+    transform:translate(-50%,-50%) scale(1);
     pointer-events:none;
     transition:0.1s;
 }
@@ -101,17 +104,16 @@ video {
 
 <video id="video" autoplay playsinline></video>
 
+<div id="startScreen">
+  <h1>Finger GPT</h1>
+  <p>Управляй AI с помощью жестов</p>
+  <button id="startBtn">Start</button>
+</div>
+
 <div id="ui">
-    <div id="status">Ready</div>
-
-    <div id="centerBox">
-        <div id="title">Finger GPT</div>
-        <div id="subtitle">Управляй AI руками</div>
-    </div>
-
-    <div id="chat"></div>
-
-    <div id="cursor"></div>
+  <div id="status">Ready</div>
+  <div id="chat"></div>
+  <div id="cursor"></div>
 </div>
 
 <script type="module">
@@ -119,11 +121,19 @@ import { Hands } from "https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js";
 import { Camera } from "https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js";
 
 // UI
-const status = document.getElementById("status");
+const startScreen = document.getElementById("startScreen");
+const startBtn = document.getElementById("startBtn");
 const cursorEl = document.getElementById("cursor");
 const chat = document.getElementById("chat");
+const status = document.getElementById("status");
 
-// добавление сообщений
+// старт
+startBtn.onclick = () => {
+    startScreen.style.display = "none";
+    showHint("Покажи руку 👋");
+};
+
+// сообщения
 function addMessage(text){
     const div = document.createElement("div");
     div.className = "message";
@@ -132,11 +142,26 @@ function addMessage(text){
     chat.scrollTop = chat.scrollHeight;
 }
 
+// hint
+function showHint(text){
+    status.innerText = text;
+}
+
+// AI ответы
+const responses = [
+    "Анализирую...",
+    "Обрабатываю запрос",
+    "Готово",
+    "Интересная команда",
+    "Запускаю систему"
+];
+
 // ===== HAND =====
 const video = document.getElementById("video");
 
 let cursor = {x:0,y:0};
 let lastPinch = false;
+let holdStart = null;
 
 function dist(a,b){
     return Math.hypot(a.x-b.x, a.y-b.y);
@@ -170,54 +195,37 @@ hands.onResults(res=>{
 
     const pinch = isPinch(lm);
 
-    // визуал курсора
     cursorEl.style.background = pinch ? "#ff4d4d" : "#00ffcc";
 
-    // действие
-    if(pinch && !lastPinch){
-        status.innerText = "Click";
+    // анимация курсора
+    cursorEl.style.transform = pinch
+        ? "translate(-50%,-50%) scale(1.6)"
+        : "translate(-50%,-50%) scale(1)";
 
-        handleClick(cursor.x, cursor.y);
+    // HOLD (магия)
+    if(pinch){
+        if(!holdStart) holdStart = Date.now();
+
+        if(Date.now() - holdStart > 800){
+            triggerAction();
+            holdStart = null;
+        }
     } else {
-        status.innerText = "Tracking";
+        holdStart = null;
     }
 
     lastPinch = pinch;
 });
 
-// ===== ЛОГИКА UI =====
-function handleClick(x,y){
+// действие
+function triggerAction(){
+    addMessage("Ты: команда");
 
-    // если клик по центру → отправка команды
-    const center = document.getElementById("centerBox").getBoundingClientRect();
+    const reply = responses[Math.floor(Math.random()*responses.length)];
 
-    if(
-        x > center.left &&
-        x < center.right &&
-        y > center.top &&
-        y < center.bottom
-    ){
-        addMessage("Ты: Запусти систему");
-
-        setTimeout(()=>{
-            addMessage("GPT: Система активирована");
-        },600);
-    }
-
-    // если клик внизу → новый запрос
-    const chatBox = document.getElementById("chat").getBoundingClientRect();
-
-    if(
-        x > chatBox.left &&
-        x < chatBox.right &&
-        y > chatBox.top &&
-        y < chatBox.bottom
-    ){
-        addMessage("Ты: Привет");
-        setTimeout(()=>{
-            addMessage("GPT: Привет 👋");
-        },500);
-    }
+    setTimeout(()=>{
+        addMessage("GPT: " + reply);
+    },500);
 }
 
 // камера
